@@ -1,43 +1,43 @@
 'use strict'
 
-var ctor = require('through2').ctor
+var util = require('util')
+
+var throughCtor = require('through2').ctor
 var debug = require('debug')('muxdemux')
 var errToJSON = require('error-to-json')
 var last = require('101/last')
-var noop = require('101/noop')
 
-var Substream = require('./lib/substream.js')
+var substreamCtor = require('./lib/substream.js').ctor
 
 var closeParen = new Buffer('}')[0]
 var openParen = new Buffer('{')[0]
 
-var jsonErrs = function (arg) {
-  return (arg instanceof Error)
-    ? errToJSON(arg)
-    : arg
-}
-var parseErrs = function (method, event) {
-  if (method === 'emit' && event === 'error') {
-    return function (arg, i) {
-      return (i === 1)
-        ? errToJSON.parse(arg)
-        : arg
-    }
-  } else {
-    return function (arg) {
-      return arg
-    }
+var jsonErr = function (arg) {
+  if (arg instanceof Error) {
+    arg = errToJSON(arg)
+    arg.type = 'Error'
   }
+  return arg
+}
+var parseErrs = function (arg) {
+  if (arg.type === 'Error') {
+    delete arg.type
+    arg = errToJSON.parse(arg)
+  }
+  return arg
 }
 var parseBuffers = function (arg) {
   return (arg.type === 'Buffer')
     ? new Buffer(arg.data)
     : arg
 }
-var safeParse = function (chunk, enc) {
-  var str = (enc === 'buffer')
-    ? chunk.toString()
-    : new Buffer(chunk, enc).toString('utf8')
+var parseJSON = function (chunk, enc) {
+  // chunk is buffer
+  var isJSON = (chunk[0] === openParen && last(chunk) === closeParen)
+  if (!isJSON) {
+    return null
+  }
+  var str = chunk.toString()
   try {
     return JSON.parse(str)
   } catch (e) {
@@ -45,197 +45,234 @@ var safeParse = function (chunk, enc) {
   }
 }
 
-module.exports = Muxdemux
+module.exports = ctor() // { objectMode: false }
+module.exports.ctor = ctor
+module.exports.obj = ctor({ objectMode: true })
 
-function Muxdemux (opts, handleSubstream) {
-  if (typeof opts === 'function') {
-    handleSubstream = opts
-    opts = null
-  }
+function ctor (opts) {
   opts = opts || {}
-  opts.objectMode = false
-  var Class = ctor(opts, transform)
-  Class.prototype.substream = function (name, dontEmit) {
-    debug('substream', name, dontEmit)
+  var Through = throughCtor(opts, transform)
+  var Substream = substreamCtor(opts)
+  /**
+   * Muxdemux Class
+   * @param {Function} [handleSubstream]
+   * @param {Boolean} [dontEndWhenSubstreamsEnd]
+   */
+  function Muxdemux (handleSubstream, dontEndWhenSubstreamsEnd) {
+    if (!(this instanceof Muxdemux)) {
+      return new Muxdemux(handleSubstream, dontEndWhenSubstreamsEnd)
+    }
+    debug('Muxdemux', typeof handleSubstream, dontEndWhenSubstreamsEnd)
+    // super
+    Through.call(this)
+    // constructor
     var self = this
-    this.__streams = this.__streams || []
-    var substream = this.__streams[name]
-    if (substream) {
-      debug('substream: exists', name)
-      return shim(substream)
-    }
-    debug('substream: does not exist', name)
-    substream = this.__streams[name] = new Substream(name, opts)
-    debug('substream: created', name)
-    substream.on('error', noop) // prevent thrown errors
-    if (!dontEmit) {
-      debug('substream: push "new-chunk"', name)
-      this.push(new Buffer(JSON.stringify({
-        substream: name,
-        'new': true
-      })))
-      this.emit('substream', name)
-    }
-    return shim(substream)
-    function shim (substream) {
-      return Object.create(substream, {
-        write: {
-          value: function () {
-            debug('substream.write', name, arguments)
-            self.push(new Buffer(JSON.stringify({
-              substream: name,
-              method: 'write',
-              args: Array.prototype.slice.call(arguments)
-            })))
-            return substream.write.apply(substream, arguments)
-          }
-        },
-        emit: {
-          value: function () {
-            debug('substream.emit', name, arguments)
-            // ignore stream events.. data, resume, ...
-            // well maybe not bc these are only external emits
-            self.push(new Buffer(JSON.stringify({
-              substream: name,
-              method: 'emit',
-              args: Array.prototype.slice.call(arguments).map(jsonErrs)
-            })))
-            return substream.emit.apply(substream, arguments)
-          }
-        }
+    this.__substreamNames = {}
+    this.__substreams = {}
+    this.__wrappedSubstreams = {}
+    this.__endedSubstreams = {}
+    this.__dontEndWhenSubstreamsEnd = dontEndWhenSubstreamsEnd
+    var ended = false
+    this.once('finish', function () {
+      ended = true
+      Object.keys(self.__substreams).forEach(function (name) {
+        self.__substreams[name].end()
       })
-    }
-  }
-  function transform (chunk, enc, cb) {
-    debug('transform', chunk, enc)
-    var self = this
-    var isJSON = Buffer.isBuffer(chunk)
-      // chunk is buffer
-      ? chunk[0] === openParen && last(chunk) === closeParen
-      // chunk is string
-      : chunk[0] === '{' && last(chunk) === '}'
-    debug('transform chunk isJSON', isJSON, chunk.toString(), enc)
-    if (isJSON) {
-      var json = safeParse(chunk, enc)
-      if (!json || !json.substream) { return push(cb) }
-      var substream = this.__streams && this.__streams[json.substream]
-      var create = this.listeners('substream').length
-      if (json['new']) {
-        this.emit('substream', json.substream)
-      } else if (json.method && (substream || create)) {
-        if (create) {
-          this.substream(json.substream, true)
-          substream = this.__streams[json.substream]
-        }
-        var method = json.method
-        var args = json.args.map(parseBuffers).map(parseErrs(method, json.args[0]))
-        substream[method].apply(substream, args)
-      }
-    }
-    push(cb)
-    function push () {
-      self.push(chunk)
-      cb()
-    }
-  }
-  var instance = new Class()
-  if (handleSubstream) {
-    instance.on('substream', function (name) {
-      debug('handleSubstream', name)
-      handleSubstream.call(this, this.substream(name, true), name)
     })
-  }
-  return instance
-}
-
-Muxdemux.obj = function (opts, handleSubstream) {
-  if (typeof opts === 'function') {
-    handleSubstream = opts
-    opts = null
-  }
-  opts = opts || {}
-  opts.objectMode = true
-  var Class = ctor(opts, transform)
-  Class.prototype.substream = function (name, dontEmit) {
-    debug('obj substream', name, dontEmit)
-    var self = this
-    this.__streams = this.__streams || []
-    var substream = this.__streams[name]
-    if (substream) {
-      debug('substream: exists', name)
-      return shim(substream)
-    }
-    debug('substream: does not exist', name)
-    substream = this.__streams[name] = new Substream(name, opts)
-    debug('substream: created', name)
-    substream.on('error', noop) // prevent thrown errors
-    if (!dontEmit) {
-      debug('substream: push "new-chunk"', name)
-      this.push({
-        substream: name,
-        'new': true
+    if (handleSubstream) {
+      this.on('substream', function (name) {
+        debug('muxdemux.handleSubstream', name)
+        var substream = getOrCreateSubstream.call(self, name)
+        handleSubstream.call(self, substream, name)
       })
-      this.emit('substream', name)
     }
-    return shim(substream)
-    function shim (substream) {
-      return Object.create(substream, {
-        write: {
-          value: function () {
-            debug('substream.write', name, arguments)
-            self.push({
-              substream: name,
-              method: 'write',
-              args: Array.prototype.slice.call(arguments)
-            })
-            return substream.write.apply(substream, arguments)
-          }
-        },
-        emit: {
-          value: function () {
-            debug('substream.emit', name, arguments)
-            // ignore stream events.. data, resume, ...
-            // well maybe not bc these are only external emits
-            self.push({
-              substream: name,
-              method: 'emit',
-              args: Array.prototype.slice.call(arguments).map(jsonErrs)
-            })
-            return substream.emit.apply(substream, arguments)
-          }
+  }
+  // inherit from through
+  util.inherits(Muxdemux, Through)
+  /* public methods */
+  /**
+   * get or create a substream for public usage
+   * @param  {String} name name of substream
+   * @return {WrappedSubstream} substream w/ methods wrapped for public usage
+   */
+  Muxdemux.prototype.substream = function (name) {
+    debug('muxdemux.substream', name)
+    var substream = getSubstream.call(this, name)
+    if (substream) {
+      return this.__wrappedSubstreams[name]
+    }
+    substream = createSubstream.call(this, name)
+    castAndPush.call(this, {
+      substream: name,
+      'new': true
+    })
+    this.emit('substream', name)
+    return this.__wrappedSubstreams[name]
+  }
+  /* private methods */
+  /**
+   * cast chunk buffer if objectMode:false and push
+   */
+  function castAndPush (chunk) {
+    debug('muxdemux.castAndPush', chunk)
+    if (!opts.objectMode && (typeof chunk === 'object' && !Buffer.isBuffer(chunk))) {
+      debug('muxdemux.castAndPush: cast as buffer', chunk)
+      chunk = new Buffer(JSON.stringify(chunk))
+    }
+    this.push(chunk)
+  }
+  /**
+   * get or create substream on instance
+   * @param  {String} name substream name
+   * @return {Substream} substream w/ name
+   */
+  function createSubstream (name) {
+    debug('muxdemux.createSubstream', name)
+    var self = this
+    var dontEndWhenSubstreamsEnd = this.__dontEndWhenSubstreamsEnd
+    this.__substreamNames[name] = true
+    var substream = this.__substreams[name] = new Substream(name)
+    this.__wrappedSubstreams[name] = wrapSubstream.call(this, substream)
+    debug('muxdemux.createSubstream: dontEndWhenSubstreamsEnd:', dontEndWhenSubstreamsEnd)
+    if (!dontEndWhenSubstreamsEnd) {
+      substream.once('finish', function () {
+        debug('substream finish event', name)
+        handleSubstreamFinish.call(self, name)
+      })
+      substream.once('error', function (err) {
+        debug('substream error event', name, err)
+        handleSubstreamFinish.call(self, name)
+        if (this.listeners('error').length === 1) {
+          throw err
         }
       })
     }
+    return substream
   }
+  /**
+   * get or create substream on instance
+   * @param  {String} name substream name
+   * @return {Substream} substream w/ name
+   */
+  function getOrCreateSubstream (name) {
+    debug('muxdemux.getOrCreateSubstream', name)
+    return getSubstream.call(this, name) || createSubstream.call(this, name)
+  }
+  /**
+   * get or create substream on instance
+   * @param  {String} name substream name
+   * @return {Substream} substream w/ name
+   */
+  function getSubstream (name) {
+    debug('muxdemux.getSubstream', name)
+    return this.__substreams[name]
+  }
+  /**
+   * handle substream ends and determine if muxdemux should end
+   * @return {[type]} [description]
+   */
+  function handleSubstreamFinish (name) {
+    debug('muxdemux.handleSubstreamFinish', name)
+    this.__endedSubstreams[name] = true
+    var allLen = Object.keys(this.__substreamNames).length
+    var stoppedLen = Object.keys(this.__endedSubstreams).length
+    if (allLen === stoppedLen) {
+      this.end()
+    }
+  }
+  /**
+   * passthrough stream chunks and emit substream events for substream chunks
+   * @param  {Buffer|String|Object} chunk
+   * @param  {String} enc
+   * @param  {Function} cb
+   */
   function transform (chunk, enc, cb) {
-    debug('obj transform', chunk, enc)
+    debug('muxdemux.transform', chunk, enc)
     var self = this
-    var json = chunk
-    if (!json.substream) { return push(cb) }
-    var substream = this.__streams && this.__streams[json.substream]
-    var create = this.listeners('substream').length
+    var json = opts.objectMode
+      ? chunk
+      : parseJSON(chunk, enc)
+    if (!json || !json.substream) {
+      debug('muxdemux.transform: !json')
+      // chunk is not a substream-chunk, just push downstream
+      push(chunk, cb)
+      return
+    }
+    debug('muxdemux.transform: json', json)
+    // chunk is json, and a substream-chunk
+    var substream = getSubstream.call(this, json.substream)
+    debug('muxdemux.transform: substream[' + json.substream + '] exists', !!substream)
     if (json['new']) {
+      debug('muxdemux.transform: new-substream chunk')
+      // new substream found
+      this.__substreamNames[json.substream] = true
       this.emit('substream', json.substream)
-    } else if (json.method && (substream || create)) {
-      if (create) {
-        this.substream(json.substream, true)
-        substream = this.__streams[json.substream]
-      }
+    }
+    if (!substream && json.method === 'end') {
+      debug('muxdemux.transform: end-substream chunk substream DNE', json.substream)
+      handleSubstreamFinish.call(this, json.substream)
+    }
+    if (substream && json.method) {
+      debug('muxdemux.transform: invoke-substream chunk')
       var method = json.method
-      var args = json.args.map(parseBuffers).map(parseErrs(method, json.args[0]))
+      var args = json.args.map(parseBuffers).map(parseErrs)
+      // invoke substream method
       substream[method].apply(substream, args)
     }
-    push(cb)
-    function push () {
+    push(chunk, cb)
+    function push (chunk, cb) {
       self.push(chunk)
       cb()
     }
   }
-  var instance = new Class()
-  if (handleSubstream) {
-    instance.on('substream', function (name) {
-      handleSubstream.call(this, this.substream(name, true), name)
+  /**
+   * wrap a substream for public usage
+   * wraps write and emit, so that encoded substream-chunks
+   * are passed along to substreams down the pipe
+   * @param  {[type]} substream [description]
+   * @return {[type]}           [description]
+   */
+  function wrapSubstream (substream) {
+    var self = this
+    var name = substream.__name
+    return Object.create(substream, {
+      write: {
+        value: function () {
+          debug('substream.write', name, arguments)
+          castAndPush.call(self, {
+            substream: name,
+            method: 'write',
+            args: Array.prototype.slice.call(arguments)
+          })
+          return substream.write.apply(substream, arguments)
+        }
+      },
+      emit: {
+        value: function () {
+          debug('substream.emit', name, arguments)
+          // ignore stream events.. data, resume, ...
+          // well maybe not bc these are only external emits
+          castAndPush.call(self, {
+            substream: name,
+            method: 'emit',
+            args: Array.prototype.slice.call(arguments).map(jsonErr)
+          })
+          return substream.emit.apply(substream, arguments)
+        }
+      },
+      end: {
+        value: function () {
+          debug('substream.end', name, arguments)
+          castAndPush.call(self, {
+            substream: name,
+            method: 'end',
+            args: Array.prototype.slice.call(arguments)
+          })
+          return substream.end.apply(substream, arguments)
+        }
+      }
     })
   }
-  return instance
+
+  return Muxdemux
 }

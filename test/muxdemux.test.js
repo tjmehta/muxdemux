@@ -81,6 +81,8 @@ describe('muxdemux', function () {
             })
           } else if (j === 4) {
             expect(data).to.deep.equal(new Buffer('quatro'))
+          } else if (j === 5) {
+            expect(data).to.deep.equal(new Buffer('{cinco}'))
             done()
           }
           j++
@@ -91,6 +93,7 @@ describe('muxdemux', function () {
         mux.substream('foo').write(new Buffer('dos'))
         mux.substream('foo').write(new Buffer('tres'))
         mux.write(new Buffer('quatro'))
+        mux.write('{cinco}')
       })
     })
   })
@@ -119,6 +122,7 @@ describe('muxdemux', function () {
         mux.substream('foo').write({ data: 1 })
       })
     })
+
     describe('demux', function () {
       it('should demux streams', function (done) {
         var i = 0
@@ -172,6 +176,50 @@ describe('muxdemux', function () {
         mux.substream('foo').write({ foobar: 'dos' })
         mux.substream('foo').write({ foobar: 'tres' })
         mux.write({ yolo: 1 })
+      })
+
+      it('should end if all substreams end', function (done) {
+        var mux = muxdemux.obj()
+        mux.on('finish', done)
+        mux.substream('foo').write({ data: 1 })
+        mux.substream('foo').end()
+      })
+
+      describe('substreams', function () {
+        it('should receive events emitted by mux', function (done) {
+          var i = 0
+          var mux = muxdemux.obj()
+          mux.pipe(muxdemux.obj(function (stream, name) {
+            if (name === 'foo') {
+              stream.on('stuff', function (buf, err) {
+                expect(buf).instanceof(Buffer)
+                expect(err).instanceof(Error)
+                expect(buf).to.deep.equal(new Buffer('hello'))
+                expect(err.message).to.equal('boom')
+                expect(err.stack).to.exist
+                i++
+              })
+            } else { // bar
+              stream.on('stuff', function (buf, err) {
+                expect(buf).instanceof(Buffer)
+                expect(err).instanceof(Error)
+                expect(buf).to.deep.equal(new Buffer('hello2'))
+                expect(err.message).to.equal('boom2')
+                expect(err.stack).to.exist
+                i++
+                if (i === 2) {
+                  done()
+                }
+              })
+            }
+          })).pipe(through2.obj(function (data, enc, cb) {
+            this.push(data)
+            cb()
+          }))
+
+          mux.substream('foo').emit('stuff', new Buffer('hello'), new Error('boom'))
+          mux.substream('bar').emit('stuff', new Buffer('hello2'), new Error('boom2'))
+        })
       })
     })
   })
