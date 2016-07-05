@@ -13,6 +13,17 @@ var substreamCtor = require('./lib/substream.js').ctor
 var closeParen = new Buffer('}')[0]
 var openParen = new Buffer('{')[0]
 
+var jsonBuf = function (arg) {
+  // for node < 0.10
+  if (Buffer.isBuffer(arg)) {
+    var json = arg.toJSON()
+    /* istanbul ignore next */
+    arg = (json.type)
+      ? json
+      : { type: 'Buffer', data: json}
+  }
+  return arg
+}
 var jsonErr = function (arg) {
   if (arg instanceof Error) {
     arg = errToJSON(arg)
@@ -284,7 +295,7 @@ function ctor (opts) {
           castAndPush.call(self, {
             substream: name,
             method: 'write',
-            args: Array.prototype.slice.call(arguments)
+            args: Array.prototype.slice.call(arguments).map(jsonBuf)
           })
           return substream.write.apply(substream, arguments)
         }
@@ -297,7 +308,7 @@ function ctor (opts) {
           castAndPush.call(self, {
             substream: name,
             method: 'emit',
-            args: Array.prototype.slice.call(arguments).map(jsonErr)
+            args: Array.prototype.slice.call(arguments).map(jsonErr).map(jsonBuf)
           })
           return substream.emit.apply(substream, arguments)
         }

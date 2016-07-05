@@ -11,6 +11,17 @@ var through2 = require('through2')
 var muxdemux = require('../index.js')
 var substream = require('../lib/substream.js')
 
+var jsonBuf = function (arg) {
+  // for node < 0.10
+  if (Buffer.isBuffer(arg)) {
+    var json = arg.toJSON()
+    arg = (json.type)
+      ? json
+      : { type: 'Buffer', data: json}
+  }
+  return arg
+}
+
 describe('muxdemux', function () {
   describe('custom opts', function () {
     describe('mux', function () {
@@ -33,7 +44,7 @@ describe('muxdemux', function () {
             expect(json).to.deep.equal({
               substream: 'foo',
               method: 'write',
-              args: [new Buffer('datadatadata').toJSON()]
+              args: [jsonBuf(new Buffer('datadatadata'))]
             })
             done()
           }
@@ -60,7 +71,7 @@ describe('muxdemux', function () {
             expect(json).to.deep.equal({
               substream: 'foo',
               method: 'write',
-              args: [new Buffer('datadatadata').toJSON()]
+              args: [jsonBuf(new Buffer('datadatadata'))]
             })
             done()
           }
@@ -100,19 +111,19 @@ describe('muxdemux', function () {
             expect(json).to.deep.equal({
               substream: 'foo',
               method: 'write',
-              args: [new Buffer('uno').toJSON()]
+              args: [jsonBuf(new Buffer('uno'))]
             })
           } else if (j === 2) {
             expect(json).to.deep.equal({
               substream: 'foo',
               method: 'write',
-              args: [new Buffer('dos').toJSON()]
+              args: [jsonBuf(new Buffer('dos'))]
             })
           } else if (j === 3) {
             expect(json).to.deep.equal({
               substream: 'foo',
               method: 'write',
-              args: [new Buffer('tres').toJSON()]
+              args: [jsonBuf(new Buffer('tres'))]
             })
           } else if (j === 4) {
             expect(data).to.deep.equal(new Buffer('quatro'))
