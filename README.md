@@ -110,5 +110,42 @@ function handleDemuxFinish () {
 }
 ```
 
+### Example: unexpected muxdemux finish
+If a muxdemux finishes before it's substreams it will emit an error to each unfinished substream.
+This default behavior can be disabled by passing `opts.unexpectedFinishError = false`
+```js
+var mux = muxdemux.obj()
+var foo = mux.substream('foo')
+var bar = mux.substream('bar')
+foo.on('error', function (err) {
+  // called bc mux finished before foo-substream finished
+  err // [Error: unexpected muxdemux finish]
+})
+bar.on('error', function () {
+  // not called, bc bar finished before mux
+})
+bar.end() // bar ends first, hence no error
+mux.end()
+```
+
+### Example: unexpected muxdemux error
+If a muxdemux errors before it's substreams finish it will emit an error to each unfinished substream.
+This default behavior can be disabled by passing `opts.unexpectedFinishError = false`
+```js
+var mux = muxdemux.obj()
+var foo = mux.substream('foo')
+var bar = mux.substream('bar')
+foo.on('error', function (err) {
+  // called bc mux finished before foo-substream finished
+  // error message is prepended w/ 'unexpected muxdemux error: '
+  err // [Error: unexpected muxdemux error: boom]
+})
+bar.on('error', function () {
+  // not called, bc bar finished before mux
+})
+bar.end() // bar ends first, hence no error
+mux.emit('error', new Error('boom'))
+```
+
 # License
 MIT

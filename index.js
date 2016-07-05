@@ -2,10 +2,11 @@
 
 var util = require('util')
 
-var throughCtor = require('through2').ctor
 var debug = require('debug')('muxdemux')
+var defaults = require('101/defaults')
 var errToJSON = require('error-to-json')
 var last = require('101/last')
+var throughCtor = require('through2').ctor
 
 var substreamCtor = require('./lib/substream.js').ctor
 
@@ -55,6 +56,9 @@ function ctor (opts) {
   var Substream = substreamCtor(opts)
   /**
    * Muxdemux Class
+   * @param {Object} [opts]
+   * @param {Object} [opts.keepOpen] default: false
+   * @param {Object} [opts.unexpectedFinishError] default: true
    * @param {Function} [handleSubstream]
    * @param {Boolean} [dontEndWhenSubstreamsEnd]
    */
@@ -68,6 +72,10 @@ function ctor (opts) {
       opts = null
     }
     opts = opts || {}
+    defaults(opts, {
+      keepOpen: false,
+      unexpectedFinishError: true
+    })
     // super
     Through.call(this)
     // constructor
@@ -75,13 +83,33 @@ function ctor (opts) {
     this.__substreamNames = {}
     this.__substreams = {}
     this.__wrappedSubstreams = {}
-    this.__endedSubstreams = {}
+    this.__finishedSubstreams = {}
     this.__dontEndWhenSubstreamsEnd = opts.keepOpen
     this.once('finish', function () {
+      if (opts.unexpectedFinishError && !substreamsFinished.call(self)) {
+        var err = new Error('unexpected muxdemux finish')
+        Object.keys(self.__substreamNames).forEach(function (name) {
+          if (!self.__finishedSubstreams[name]) {
+            self.__substreams[name].emit('error', err)
+          }
+        })
+        return
+      } 
       Object.keys(self.__substreams).forEach(function (name) {
         self.__substreams[name].end()
       })
     })
+    if (opts.unexpectedFinishError) {
+      this.once('error', function (err) {
+        err.message = 'unexpected muxdemux error: ' + err.message
+        Object.keys(self.__substreamNames).forEach(function (name) {
+          if (!self.__finishedSubstreams[name]) {
+            self.__substreams[name].emit('error', err)
+          }
+        })
+        return
+      })
+    }
     if (handleSubstream) {
       this.on('substream', function (name) {
         debug('muxdemux.handleSubstream', name)
@@ -179,12 +207,20 @@ function ctor (opts) {
    */
   function handleSubstreamFinish (name) {
     debug('muxdemux.handleSubstreamFinish', name)
-    this.__endedSubstreams[name] = true
-    var allLen = Object.keys(this.__substreamNames).length
-    var stoppedLen = Object.keys(this.__endedSubstreams).length
-    if (allLen === stoppedLen) {
+    this.__finishedSubstreams[name] = true
+    if (substreamsFinished.call(this)) {
       this.end()
     }
+  }
+  /**
+   * check if all substreams are finished
+   * @return {Boolean} finished
+   */
+  function substreamsFinished () {
+    debug('muxdemux.substreamsFinished')
+    var allLen = Object.keys(this.__substreamNames).length
+    var stoppedLen = Object.keys(this.__finishedSubstreams).length
+    return (allLen === stoppedLen)
   }
   /**
    * passthrough stream chunks and emit substream events for substream chunks

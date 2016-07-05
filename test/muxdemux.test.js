@@ -173,18 +173,79 @@ describe('muxdemux', function () {
         mux.substream('foo').emit('error', new Error('boom'))
       })
 
-      it('should NOT end if all substreams end (dontEndWhenSubstreamsEnd)', function (done) {
-        var mux = muxdemux.obj({ keepOpen: true })
-        mux.on('finish', function () {
-          done(new Error('should not end'))
-        })
-        mux.substream('foo').write({ data: 1 })
-        mux.substream('bar').write({ data: 1 })
-        mux.substream('foo').end()
-        mux.substream('bar').end()
-        mux.removeAllListeners('finish')
-        mux.on('finish', done)
+      it('should emit substream errors if parent stream closes', function (done) {
+        var count = callbackCount(2, done)
+        var mux = muxdemux.obj()
+        mux.substream('foo').on('error', expectErr)
+        mux.substream('bar').on('error', expectErr)
+        mux.substream('qux').on('error', expectNoErr)
+        mux.substream('qux').end()
         mux.end()
+        function expectErr (err) {
+          expect(err.message).to.match(/unexpected.*finish/)
+          count.next()
+        }
+        function expectNoErr () {
+          done(new Error('should not error'))
+        }
+      })
+
+      it('should emit substream errors if parent stream errors', function (done) {
+        var count = callbackCount(2, done)
+        var mux = muxdemux.obj()
+        mux.substream('foo').on('error', expectErr)
+        mux.substream('bar').on('error', expectErr)
+        mux.substream('qux').on('error', expectNoErr)
+        mux.substream('qux').end()
+        mux.emit('error', new Error('boom'))
+        function expectErr (err) {
+          expect(err.message).to.match(/unexpected.*error.*boom/)
+          count.next()
+        }
+        function expectNoErr () {
+          done(new Error('should not error'))
+        }
+      })
+
+      describe('opts', function () {
+        it('should NOT end if all substreams end (opts.keepOpen)', function (done) {
+          var mux = muxdemux.obj({ keepOpen: true })
+          mux.on('finish', function () {
+            done(new Error('should not end'))
+          })
+          mux.substream('foo').write({ data: 1 })
+          mux.substream('bar').write({ data: 1 })
+          mux.substream('foo').end()
+          mux.substream('bar').end()
+          mux.removeAllListeners('finish')
+          mux.on('finish', done)
+          mux.end()
+        })
+
+        describe('opts.unexpectedFinishError', function () {
+          it('should emit substream errors if parent stream closes', function (done) {
+            var mux = muxdemux.obj({ unexpectedFinishError: false })
+            mux.substream('foo').on('error', expectNoErr)
+            mux.substream('bar').on('error', expectNoErr)
+            mux.end()
+            function expectNoErr () {
+              done(new Error('should not error'))
+            }
+            done()
+          })
+
+          it('should emit substream errors if parent stream errors', function (done) {
+            var mux = muxdemux.obj({ unexpectedFinishError: false })
+            mux.substream('foo').on('error', expectNoErr)
+            mux.substream('bar').on('error', expectNoErr)
+            mux.on('error', noop)
+            mux.emit('error', new Error('boom'))
+            function expectNoErr () {
+              done(new Error('should not error'))
+            }
+            done()
+          })
+        })
       })
     })
 
