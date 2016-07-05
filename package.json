@@ -1,7 +1,7 @@
 {
   "name": "muxdemux",
   "version": "0.0.0",
-  "description": "multiplex and demultiplex (mux / demux) streams into an single stream (objectMode or not)",
+  "description": "multiplex and demultiplex (mux / demux) streams into an single stream (object mode or not)",
   "main": "index.js",
   "scripts": {
     "test": "istanbul cover _mocha ./test && istanbul --text check-coverage --statements 100 --functions 100 --branches 100 --lines 100",
@@ -18,9 +18,15 @@
     "demultiplex",
     "stream",
     "multistream",
+    "substream",
     "multi",
     "merge",
-    "split"
+    "split",
+    "object",
+    "mode",
+    "objectMode",
+    "buffer",
+    "events"
   ],
   "author": "Tejesh Mehta",
   "license": "MIT",
@@ -29,6 +35,7 @@
   },
   "homepage": "https://github.com/tjmehta/muxdemux",
   "dependencies": {
+    "callback-count": "^0.2.0",
     "debug": "^2.2.0",
     "error-to-json": "^1.1.0",
     "through2": "^2.0.1"

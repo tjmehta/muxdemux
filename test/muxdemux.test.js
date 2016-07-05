@@ -3,12 +3,47 @@
 var describe = global.describe
 var it = global.it
 
+var callbackCount = require('callback-count')
 var expect = require('chai').expect
+var noop = require('101/noop')
 var through2 = require('through2')
 
 var muxdemux = require('../index.js')
+var substream = require('../lib/substream.js')
 
 describe('muxdemux', function () {
+  describe('custom opts', function () {
+    describe('mux', function () {
+      it('should mux streams into one', function (done) {
+        var i = 0
+        var opts = { highWaterMark: 1000, objectMode: false }
+        // dump opts default coverage line..
+        substream.ctor(null)
+        // real test
+        var Muxdemux = muxdemux.ctor(opts)
+        var mux = new Muxdemux()
+        mux.on('data', function (data) {
+          var json = JSON.parse(data.toString())
+          if (i === 0) {
+            expect(json).to.deep.equal({
+              substream: 'foo',
+              new: true
+            })
+          } else if (i === 1) {
+            expect(json).to.deep.equal({
+              substream: 'foo',
+              method: 'write',
+              args: [new Buffer('datadatadata').toJSON()]
+            })
+            done()
+          }
+          i++
+        })
+        mux.substream('foo').write(new Buffer('datadatadata'))
+      })
+    })
+  })
+
   describe('objectMode:false', function () {
     describe('mux', function () {
       it('should mux streams into one', function (done) {
@@ -121,6 +156,36 @@ describe('muxdemux', function () {
         })
         mux.substream('foo').write({ data: 1 })
       })
+
+      it('should end if all substreams end', function (done) {
+        var mux = muxdemux.obj()
+        mux.on('finish', done)
+        mux.substream('foo').write({ data: 1 })
+        mux.substream('bar').write({ data: 1 })
+        mux.substream('foo').end()
+        mux.substream('bar').end()
+      })
+
+      it('should end if all substreams error', function (done) {
+        var mux = muxdemux.obj()
+        mux.on('finish', done)
+        mux.substream('foo').on('error', noop)
+        mux.substream('foo').emit('error', new Error('boom'))
+      })
+
+      it('should NOT end if all substreams end (dontEndWhenSubstreamsEnd)', function (done) {
+        var mux = muxdemux.obj({ keepOpen: true })
+        mux.on('finish', function () {
+          done(new Error('should not end'))
+        })
+        mux.substream('foo').write({ data: 1 })
+        mux.substream('bar').write({ data: 1 })
+        mux.substream('foo').end()
+        mux.substream('bar').end()
+        mux.removeAllListeners('finish')
+        mux.on('finish', done)
+        mux.end()
+      })
     })
 
     describe('demux', function () {
@@ -180,9 +245,54 @@ describe('muxdemux', function () {
 
       it('should end if all substreams end', function (done) {
         var mux = muxdemux.obj()
-        mux.on('finish', done)
+        var demux = muxdemux.obj(function (substream) {
+          // ..
+        })
+        mux.pipe(demux)
+        demux.on('finish', done)
         mux.substream('foo').write({ data: 1 })
         mux.substream('foo').end()
+      })
+
+      it('should end if all substreams end (substream DNE)', function (done) {
+        var mux = muxdemux.obj()
+        var demux = muxdemux.obj()
+        mux.pipe(demux)
+        demux.on('finish', done)
+        mux.substream('foo').write({ data: 1 })
+        mux.substream('foo').end()
+      })
+
+      it('should end if all substreams error', function (done) {
+        var next = callbackCount(2, done).next
+        var mux = muxdemux.obj()
+        var demux = muxdemux.obj(function (substream) {
+          substream.on('error', function () {
+            next()
+          })
+        })
+        mux.pipe(demux)
+        demux.on('finish', next)
+        mux.substream('foo').on('error', noop)
+        mux.substream('foo').emit('error', new Error('boom'))
+      })
+
+      it('should throw error if substream error has no handlers', function (done) {
+        var next = callbackCount(2, done).next
+        var mux = muxdemux.obj()
+        var demux = muxdemux.obj(function (substream) {
+          substream.on('error', function () {
+            next()
+          })
+        })
+        mux.pipe(demux)
+        demux.on('finish', next)
+        var err = new Error('boom')
+        try {
+          mux.substream('foo').emit('error', err)
+        } catch (_err) {
+          expect(_err).to.equal(err)
+        }
       })
 
       describe('substreams', function () {

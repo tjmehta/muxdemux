@@ -58,11 +58,16 @@ function ctor (opts) {
    * @param {Function} [handleSubstream]
    * @param {Boolean} [dontEndWhenSubstreamsEnd]
    */
-  function Muxdemux (handleSubstream, dontEndWhenSubstreamsEnd) {
+  function Muxdemux (opts, handleSubstream) {
     if (!(this instanceof Muxdemux)) {
-      return new Muxdemux(handleSubstream, dontEndWhenSubstreamsEnd)
+      return new Muxdemux(opts, handleSubstream)
     }
-    debug('Muxdemux', typeof handleSubstream, dontEndWhenSubstreamsEnd)
+    debug('Muxdemux', opts, typeof handleSubstream)
+    if (typeof opts === 'function') {
+      handleSubstream = opts
+      opts = null
+    }
+    opts = opts || {}
     // super
     Through.call(this)
     // constructor
@@ -71,10 +76,8 @@ function ctor (opts) {
     this.__substreams = {}
     this.__wrappedSubstreams = {}
     this.__endedSubstreams = {}
-    this.__dontEndWhenSubstreamsEnd = dontEndWhenSubstreamsEnd
-    var ended = false
+    this.__dontEndWhenSubstreamsEnd = opts.keepOpen
     this.once('finish', function () {
-      ended = true
       Object.keys(self.__substreams).forEach(function (name) {
         self.__substreams[name].end()
       })
@@ -142,7 +145,10 @@ function ctor (opts) {
       substream.once('error', function (err) {
         debug('substream error event', name, err)
         handleSubstreamFinish.call(self, name)
-        if (this.listeners('error').length === 1) {
+        var numHandlers = substream.listeners('error').length
+        debug('substream error event: num handlers', numHandlers)
+        if (numHandlers === 0) {
+          debug('substream error event: throw error')
           throw err
         }
       })
