@@ -17,7 +17,7 @@ var jsonBuf = function (arg) {
     var json = arg.toJSON()
     arg = (json.type)
       ? json
-      : { type: 'Buffer', data: json}
+      : { type: 'Buffer', data: json }
   }
   return arg
 }

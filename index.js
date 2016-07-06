@@ -12,6 +12,7 @@ var substreamCtor = require('./lib/substream.js').ctor
 
 var closeParen = new Buffer('}')[0]
 var openParen = new Buffer('{')[0]
+var id = 0
 
 var jsonBuf = function (arg) {
   // for node < 0.10
@@ -91,13 +92,14 @@ function ctor (opts) {
     Through.call(this)
     // constructor
     var self = this
+    this.id = id++
     this.__substreamNames = {}
     this.__substreams = {}
     this.__wrappedSubstreams = {}
     this.__finishedSubstreams = {}
     this.__dontEndWhenSubstreamsEnd = opts.keepOpen
     this.once('finish', function () {
-      if (opts.unexpectedFinishError && !substreamsFinished.call(self)) {
+      if (opts.unexpectedFinishError) {
         var err = new Error('unexpected muxdemux finish')
         Object.keys(self.__substreamNames).forEach(function (name) {
           if (!self.__finishedSubstreams[name]) {
@@ -105,7 +107,7 @@ function ctor (opts) {
           }
         })
         return
-      } 
+      }
       Object.keys(self.__substreams).forEach(function (name) {
         self.__substreams[name].end()
       })
@@ -157,6 +159,9 @@ function ctor (opts) {
    */
   function castAndPush (chunk) {
     debug('muxdemux.castAndPush', chunk)
+    if (this._writableState.ending || this._writableState.ending.ended) {
+      return
+    }
     if (!opts.objectMode && (typeof chunk === 'object' && !Buffer.isBuffer(chunk))) {
       debug('muxdemux.castAndPush: cast as buffer', chunk)
       chunk = new Buffer(JSON.stringify(chunk))
