@@ -1,6 +1,6 @@
 {
   "name": "muxdemux",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "multiplex and demultiplex (mux / demux) streams into an single stream (object mode or not)",
   "main": "index.js",
   "scripts": {
