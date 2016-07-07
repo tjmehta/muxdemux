@@ -30,6 +30,7 @@ describe('scenarios', function () {
       next()
     })
     substream.on('unpipe', function () {
+      substream.emit('yolo', 1) // coverage, doesn't attempt to write encoded substream-chunk to closed stream
       next()
     })
     mux.pipe(middleStream).pipe(demux)
