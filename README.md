@@ -9,6 +9,7 @@ npm i --save muxdemux
 # Usage
 ### Example: muxdemux substreams
 ```js
+var muxdemux = require('muxdemux')
 var mux = muxdemux()
 var demux = muxdemux(handleSubstream)
 mux.pipe(demux)
@@ -33,6 +34,7 @@ Substream events are encoded and sent down the stream as data packets.
 Demux streams will decode these data packets and emit the events as if they occurred on downstream substreams themselves.
 All emitted from a mux.substream(<name>).emit(...) will be propagated to downstream substreams.
 ```js
+var muxdemux = require('muxdemux')
 var mux = muxdemux()
 var demux = muxdemux(handleSubstream)
 mux.pipe(demux)
@@ -67,6 +69,7 @@ function handleSubstream (substream, name) {
 For now muxdemux assumes that substreams share the same objectMode as their parents;
 substreams of objectMode:true mux/demux streams will also be objectMode:true and vice versa.
 ```js
+var muxdemux = require('muxdemux')
 var mux = muxdemux.obj()
 var demux = muxdemux.obj(handleSubstream)
 mux.pipe(demux)
@@ -90,6 +93,7 @@ function handleSubstream (substream, name) {
 If all of a mux/demux's substreams end the mux/demux stream will also end.
 The same is also true for the opposite. If a mux/demux stream ends, it's substreams will be ended.
 ```js
+var muxdemux = require('muxdemux')
 var mux = muxdemux.obj()
 var demux = muxdemux.obj(function handleSubstream (substream, name) { /* ... */ })
 mux.on('finish', handleMuxFinish)
@@ -114,6 +118,7 @@ function handleDemuxFinish () {
 If a muxdemux finishes before it's substreams it will emit an error to each unfinished substream.
 This default behavior can be disabled by passing `opts.unexpectedFinishError = false`
 ```js
+var muxdemux = require('muxdemux')
 var mux = muxdemux.obj()
 var foo = mux.substream('foo')
 var bar = mux.substream('bar')
@@ -132,6 +137,7 @@ mux.end()
 If a muxdemux errors before it's substreams finish it will emit an error to each unfinished substream.
 This default behavior can be disabled by passing `opts.unexpectedFinishError = false`
 ```js
+var muxdemux = require('muxdemux')
 var mux = muxdemux.obj()
 var foo = mux.substream('foo')
 var bar = mux.substream('bar')
@@ -145,6 +151,34 @@ bar.on('error', function () {
 })
 bar.end() // bar ends first, hence no error
 mux.emit('error', new Error('boom'))
+```
+
+### Example: circular streams
+Circular substream data is filtered out of muxdemux streams by default. But if you want to be explicit and prevent non-substream
+data from infinitely circulating through your stream use `opts.circular`. `opts.circular` will filter out non-substream data.
+Circular streams are useful if you want substream events to be emitted "upstream" and "downstream".
+```js
+// server.js
+var muxdemux = require('muxdemux')
+var websocket = /* ... */
+var mux = muxdemux({ circular: true })
+websocket.pipe(mux).pipe(websocket)
+var fooSubstream = mux.substream('foo')
+fooSubstream.on('custom1', function (data) {
+  console.log(data) // "hello"
+  fooSubstream.emit('custom2', 'world')
+})
+
+// client.js
+var muxdemux = require('muxdemux')
+var websocket = /* ... */
+var mux = muxdemux({ circular: true })
+websocket.pipe(demux).pipe(websocket)
+var fooSubstream = demux.substream('foo')
+fooSubstream.on('custom2', function () {
+  console.log(data) // "world"
+})
+fooSubstream.emit('custom1', 'hello')
 ```
 
 # License
