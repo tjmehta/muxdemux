@@ -10,18 +10,13 @@ var through2 = require('through2')
 var muxdemux = require('../index.js')
 
 describe('scenarios', function () {
-  it('should not write unpipe if stream is ended', function (done) {
+  it('should not write unpipe-substream-chunk if stream is ended', function (done) {
     var next = callbackCount(3, done).next
     var dataStream = through2.obj()
     var mux = muxdemux.obj()
     var middleStream = through2.obj()
     var demux = muxdemux.obj(handleStream)
     var substream = mux.substream('data')
-    dataStream.id = 'dataStream'
-    mux.id = 'mux'
-    middleStream.id = 'middleStream'
-    demux.id = 'demux'
-    substream.id = 'substream'
     // pipe all the things
     middleStream.on('finish', function () {
       mux.end()
@@ -35,6 +30,7 @@ describe('scenarios', function () {
       next()
     })
     substream.on('unpipe', function () {
+      substream.emit('yolo', 1) // coverage, doesn't attempt to write encoded substream-chunk to closed stream
       next()
     })
     mux.pipe(middleStream).pipe(demux)
@@ -48,5 +44,30 @@ describe('scenarios', function () {
         middleStream.end()
       })
     }
+  })
+
+  it('should end upstream if ended downstream (circular)', function (done) {
+    var dataStream = through2.obj()
+    var mux = muxdemux.obj({ id: 'mux' })
+    var downstream = through2.obj()
+    var upstream = through2.obj()
+    var demux = muxdemux.obj({ id: 'demux' }, handleStream)
+    var serverSubstream = mux.substream('data')
+    // "server" setup
+    serverSubstream.on('finish', function () {
+      done()
+    })
+    upstream.pipe(mux).pipe(downstream)
+    dataStream.pipe(serverSubstream)
+    // "client" setup
+    downstream.pipe(demux).pipe(upstream)
+    function handleStream (clientSubstream) {
+      // only one clientSubstream: 'data'
+      clientSubstream.on('data', function (data) {
+        clientSubstream.end() // which will end demux
+      })
+    }
+    // "server" write data
+    dataStream.write({ data: 1 })
   })
 })

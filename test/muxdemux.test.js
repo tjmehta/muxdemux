@@ -6,6 +6,7 @@ var it = global.it
 var callbackCount = require('callback-count')
 var expect = require('chai').expect
 var noop = require('101/noop')
+var omit = require('101/omit')
 var through2 = require('through2')
 
 var muxdemux = require('../index.js')
@@ -36,12 +37,12 @@ describe('muxdemux', function () {
         mux.on('data', function (data) {
           var json = JSON.parse(data.toString())
           if (i === 0) {
-            expect(json).to.deep.equal({
+            expect(omit(json, 'source')).to.deep.equal({
               substream: 'foo',
               new: true
             })
           } else if (i === 1) {
-            expect(json).to.deep.equal({
+            expect(omit(json, 'source')).to.deep.equal({
               substream: 'foo',
               method: 'write',
               args: [jsonBuf(new Buffer('datadatadata'))]
@@ -51,6 +52,41 @@ describe('muxdemux', function () {
           i++
         })
         mux.substream('foo').write(new Buffer('datadatadata'))
+      })
+    })
+
+    describe('circular', function () {
+      it('should block non-substream chunks', function (done) {
+        var mux = muxdemux({ circular: true })
+        var substream = mux.substream('sub')
+        var i = 0
+        mux.on('data', function (data) {
+          var json = JSON.parse(data.toString())
+          if (i === 0) {
+            expect(omit(json, 'source')).to.deep.equal({
+              substream: 'sub',
+              new: true
+            })
+          } else if (i === 1) {
+            expect(omit(json, 'source')).to.deep.equal({
+              substream: 'sub',
+              method: 'write',
+              args: ['uno']
+            })
+          } else if (i === 2) {
+            expect(omit(json, 'source')).to.deep.equal({
+              substream: 'sub',
+              method: 'write',
+              args: ['tres']
+            })
+            done()
+          }
+          i++
+        })
+        substream.write('uno')
+        mux.write('dos')
+        substream.write('tres')
+        substream.end()
       })
     })
   })
@@ -63,12 +99,12 @@ describe('muxdemux', function () {
         mux.on('data', function (data) {
           var json = JSON.parse(data.toString())
           if (i === 0) {
-            expect(json).to.deep.equal({
+            expect(omit(json, 'source')).to.deep.equal({
               substream: 'foo',
               new: true
             })
           } else if (i === 1) {
-            expect(json).to.deep.equal({
+            expect(omit(json, 'source')).to.deep.equal({
               substream: 'foo',
               method: 'write',
               args: [jsonBuf(new Buffer('datadatadata'))]
@@ -103,24 +139,24 @@ describe('muxdemux', function () {
             json = JSON.parse(data.toString())
           } catch (err) {}
           if (j === 0) {
-            expect(json).to.deep.equal({
+            expect(omit(json, 'source')).to.deep.equal({
               substream: 'foo',
               new: true
             })
           } else if (j === 1) {
-            expect(json).to.deep.equal({
+            expect(omit(json, 'source')).to.deep.equal({
               substream: 'foo',
               method: 'write',
               args: [jsonBuf(new Buffer('uno'))]
             })
           } else if (j === 2) {
-            expect(json).to.deep.equal({
+            expect(omit(json, 'source')).to.deep.equal({
               substream: 'foo',
               method: 'write',
               args: [jsonBuf(new Buffer('dos'))]
             })
           } else if (j === 3) {
-            expect(json).to.deep.equal({
+            expect(omit(json, 'source')).to.deep.equal({
               substream: 'foo',
               method: 'write',
               args: [jsonBuf(new Buffer('tres'))]
@@ -151,12 +187,12 @@ describe('muxdemux', function () {
         var mux = muxdemux.obj()
         mux.on('data', function (json) {
           if (i === 0) {
-            expect(json).to.deep.equal({
+            expect(omit(json, 'source')).to.deep.equal({
               substream: 'foo',
               new: true
             })
           } else if (i === 1) {
-            expect(json).to.deep.equal({
+            expect(omit(json, 'source')).to.deep.equal({
               substream: 'foo',
               method: 'write',
               args: [{ data: 1 }]
@@ -279,24 +315,24 @@ describe('muxdemux', function () {
         })).pipe(through2.obj(function (data, enc, cb) {
           var json = data
           if (j === 0) {
-            expect(json).to.deep.equal({
+            expect(omit(json, 'source')).to.deep.equal({
               substream: 'foo',
               new: true
             })
           } else if (j === 1) {
-            expect(json).to.deep.equal({
+            expect(omit(json, 'source')).to.deep.equal({
               substream: 'foo',
               method: 'write',
               args: [{ foobar: 'uno' }]
             })
           } else if (j === 2) {
-            expect(json).to.deep.equal({
+            expect(omit(json, 'source')).to.deep.equal({
               substream: 'foo',
               method: 'write',
               args: [{ foobar: 'dos' }]
             })
           } else if (j === 3) {
-            expect(json).to.deep.equal({
+            expect(omit(json, 'source')).to.deep.equal({
               substream: 'foo',
               method: 'write',
               args: [{ foobar: 'tres' }]
