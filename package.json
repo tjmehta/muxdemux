@@ -39,12 +39,12 @@
     "debug": "^2.2.0",
     "error-to-json": "^1.1.0",
     "through2": "^2.0.1",
-    "uuid": "^2.0.2"
+    "uuid": "^3.0.1"
   },
   "devDependencies": {
     "callback-count": "^0.2.0",
     "chai": "^3.5.0",
     "istanbul": "^0.4.4",
-    "mocha": "^2.5.3"
+    "mocha": "^3.2.0"
   }
 }
