@@ -1,4 +1,4 @@
-# muxdemux
+# muxdemux [![Build Status](https://travis-ci.org/tjmehta/muxdemux.svg?branch=master)](https://travis-ci.org/tjmehta/muxdemux)
 multiplex and demultiplex (mux / demux) streams into an single stream (object mode or not)
 
 # Installation
