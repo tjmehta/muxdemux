@@ -39,7 +39,7 @@
     "debug": "^2.2.0",
     "error-to-json": "^1.1.0",
     "through2": "^2.0.1",
-    "uuid": "^3.0.1"
+    "uuid": "^3.3.0"
   },
   "devDependencies": {
     "callback-count": "^0.2.0",
